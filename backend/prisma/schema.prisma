@@ -11,5 +11,7 @@ model RecentSearch {
   id        Int      @id @default(autoincrement())
   city      String
   country   String?
+  cityKey   String   @unique
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

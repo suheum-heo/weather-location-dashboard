@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "fast-xml-parser": "^5.3.3",
     "prisma": "^6.19.1"
   },
   "devDependencies": {
