@@ -1,0 +1,15 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model RecentSearch {
+  id        Int      @id @default(autoincrement())
+  city      String
+  country   String?
+  createdAt DateTime @default(now())
+}
