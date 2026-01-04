@@ -7,7 +7,15 @@ import { XMLParser } from "fast-xml-parser";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "https://YOUR_VERCEL_DOMAIN.vercel.app",
+    ],
+  })
+);
 app.use(express.json());
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
