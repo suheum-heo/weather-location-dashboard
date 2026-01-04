@@ -29,12 +29,18 @@ type OpenWeatherAir = {
 
 function aqiLabel(aqi: number | null) {
   switch (aqi) {
-    case 1: return "Good";
-    case 2: return "Fair";
-    case 3: return "Moderate";
-    case 4: return "Poor";
-    case 5: return "Very Poor";
-    default: return null;
+    case 1:
+      return "Good";
+    case 2:
+      return "Fair";
+    case 3:
+      return "Moderate";
+    case 4:
+      return "Poor";
+    case 5:
+      return "Very Poor";
+    default:
+      return null;
   }
 }
 
@@ -69,7 +75,6 @@ function cleanHtmlToText(input: string | null | undefined) {
 }
 
 // Local news in ENGLISH via Google News RSS edition settings.
-// We bias to local sources via gl/ceid but keep English.
 async function fetchGoogleNewsRss(city: string, country: string | null) {
   const cc = (country ?? "US").toUpperCase();
   const hl = `en-${cc}`;
@@ -104,20 +109,15 @@ async function fetchGoogleNewsRss(city: string, country: string | null) {
     .map((it: any) => {
       const title = String(it.title);
 
-      // Google News RSS "source" element exists in many entries
       const source =
         it?.source && typeof it.source === "object"
           ? String(it.source?.["#text"] ?? "")
           : it?.source
-            ? String(it.source)
-            : null;
+          ? String(it.source)
+          : null;
 
-      // Description frequently contains HTML
       const descriptionText = cleanHtmlToText(it?.description);
-
-      // Link is often a Google redirect; still OK to open
       const url = String(it.link);
-
       const publishedAt = it?.pubDate ? new Date(it.pubDate).toISOString() : null;
 
       return {
@@ -130,8 +130,64 @@ async function fetchGoogleNewsRss(city: string, country: string | null) {
     });
 }
 
+/**
+ * Utility: attach isFavorite boolean to a list of recent rows
+ */
+async function attachFavoriteFlag<T extends { cityKey: string }>(rows: T[]) {
+  if (rows.length === 0) return rows.map((r) => ({ ...r, isFavorite: false }));
+
+  const keys = rows.map((r) => r.cityKey);
+  const favs = await prisma.favoriteCity.findMany({
+    where: { cityKey: { in: keys } },
+    select: { cityKey: true },
+  });
+  const favSet = new Set(favs.map((f) => f.cityKey));
+
+  return rows.map((r) => ({ ...r, isFavorite: favSet.has(r.cityKey) }));
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+/**
+ * Favorites
+ * - GET /api/favorites
+ * - POST /api/favorites/toggle { city, country? }
+ */
+app.get("/api/favorites", async (_req, res) => {
+  const favorites = await prisma.favoriteCity.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(favorites);
+});
+
+app.post("/api/favorites/toggle", async (req, res) => {
+  try {
+    const city = String(req.body?.city ?? "").trim();
+    const countryRaw = req.body?.country;
+    const country = countryRaw == null ? null : String(countryRaw).trim();
+
+    if (!city) return res.status(400).json({ error: "Missing city" });
+
+    const cityKey = makeCityKey(city, country);
+
+    const existing = await prisma.favoriteCity.findUnique({ where: { cityKey } });
+
+    if (existing) {
+      await prisma.favoriteCity.delete({ where: { cityKey } });
+      return res.json({ cityKey, isFavorite: false });
+    }
+
+    await prisma.favoriteCity.create({
+      data: { city, country, cityKey },
+    });
+
+    return res.json({ cityKey, isFavorite: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Unexpected server error" });
+  }
 });
 
 app.get("/api/weather", async (req, res) => {
@@ -184,25 +240,30 @@ app.get("/api/weather", async (req, res) => {
     // 3) Local news (cleaned)
     const news = await fetchGoogleNewsRss(city, country);
 
-    const result = {
+    const cityKey = makeCityKey(city, country);
+
+    // 4) Persist recent search
+    await prisma.recentSearch.upsert({
+      where: { cityKey },
+      update: { city, country }, // updatedAt auto-updates
+      create: { city, country, cityKey },
+    });
+
+    // 5) Favorite flag
+    const fav = await prisma.favoriteCity.findUnique({ where: { cityKey } });
+
+    return res.json({
       city,
       country,
+      lat,
+      lon,
       temp: weatherData?.main?.temp ?? null,
       description: weatherData?.weather?.[0]?.description ?? null,
       aqi,
       aqiText,
       news,
-    };
-
-    const cityKey = makeCityKey(result.city, result.country);
-
-    await prisma.recentSearch.upsert({
-      where: { cityKey },
-      update: { city: result.city, country: result.country }, // updatedAt auto-updates
-      create: { city: result.city, country: result.country, cityKey },
+      isFavorite: !!fav,
     });
-
-    return res.json(result);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Unexpected server error" });
@@ -211,12 +272,20 @@ app.get("/api/weather", async (req, res) => {
 
 app.get("/api/recent", async (_req, res) => {
   const searches = await prisma.recentSearch.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 7,
+    // ordering by updatedAt makes “recent” reflect latest searches even with upsert
+    orderBy: { updatedAt: "desc" },
+    take: 10,
   });
-  res.json(searches);
+
+  const withFav = await attachFavoriteFlag(searches);
+  res.json(withFav);
 });
 
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
+});
+
+app.delete("/api/recent", async (_req, res) => {
+  await prisma.recentSearch.deleteMany({});
+  res.json({ ok: true });
 });
