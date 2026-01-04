@@ -13,6 +13,13 @@ type WeatherResult = {
   country: string | null;
   lat?: number | null;
   lon?: number | null;
+
+  // reverse geocode fields from backend (if present)
+  region?: string | null;
+  regionCode?: string | null;
+  county?: string | null;
+  displayName?: string | null;
+
   temp: number | null;
   description: string | null;
   aqi: number | null;
@@ -40,11 +47,102 @@ type FavoriteItem = {
   createdAt: string;
 };
 
+type GeoCandidate = {
+  name: string;
+  country: string;
+  state: string | null;
+  lat: number;
+  lon: number;
+};
+
 function formatTime(iso: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString();
+}
+
+/** Super clean formatting rule:
+ * - If US and we have region/state, show "City, ST" (Wisconsin -> WI)
+ * - Else show "City, CC"
+ * - If we don’t have country, just show city
+ */
+function formatCityLabel(r: WeatherResult) {
+  const city = r.city;
+
+  if (!r.country) return city;
+
+  if (r.country === "US") {
+    const stateAbbr: Record<string, string> = {
+      Alabama: "AL",
+      Alaska: "AK",
+      Arizona: "AZ",
+      Arkansas: "AR",
+      California: "CA",
+      Colorado: "CO",
+      Connecticut: "CT",
+      Delaware: "DE",
+      Florida: "FL",
+      Georgia: "GA",
+      Hawaii: "HI",
+      Idaho: "ID",
+      Illinois: "IL",
+      Indiana: "IN",
+      Iowa: "IA",
+      Kansas: "KS",
+      Kentucky: "KY",
+      Louisiana: "LA",
+      Maine: "ME",
+      Maryland: "MD",
+      Massachusetts: "MA",
+      Michigan: "MI",
+      Minnesota: "MN",
+      Mississippi: "MS",
+      Missouri: "MO",
+      Montana: "MT",
+      Nebraska: "NE",
+      Nevada: "NV",
+      "New Hampshire": "NH",
+      "New Jersey": "NJ",
+      "New Mexico": "NM",
+      "New York": "NY",
+      "North Carolina": "NC",
+      "North Dakota": "ND",
+      Ohio: "OH",
+      Oklahoma: "OK",
+      Oregon: "OR",
+      Pennsylvania: "PA",
+      "Rhode Island": "RI",
+      "South Carolina": "SC",
+      "South Dakota": "SD",
+      Tennessee: "TN",
+      Texas: "TX",
+      Utah: "UT",
+      Vermont: "VT",
+      Virginia: "VA",
+      Washington: "WA",
+      "West Virginia": "WV",
+      Wisconsin: "WI",
+      Wyoming: "WY",
+      "District of Columbia": "DC",
+    };
+
+    const st = r.region ? stateAbbr[r.region] ?? null : null;
+    if (st) return `${city}, ${st}`;
+    if (r.region) return `${city}, ${r.region}`;
+    return `${city}, US`;
+  }
+
+  return `${city}, ${r.country}`;
+}
+
+function formatCandidateLabel(c: GeoCandidate) {
+  // For the picker chips
+  if (c.country === "US" && c.state) {
+    // show state name to make choice obvious
+    return `${c.name}, ${c.state}`;
+  }
+  return `${c.name}, ${c.country}${c.state ? ` (${c.state})` : ""}`;
 }
 
 export default function App() {
@@ -54,6 +152,10 @@ export default function App() {
   const [recent, setRecent] = useState<RecentItem[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [dark, setDark] = useState<boolean>(() => localStorage.getItem("theme") === "dark");
+
+  // NEW: ambiguity resolver UI
+  const [candidates, setCandidates] = useState<GeoCandidate[] | null>(null);
+  const [pendingQuery, setPendingQuery] = useState<string>("");
 
   useEffect(() => {
     localStorage.setItem("theme", dark ? "dark" : "light");
@@ -98,7 +200,7 @@ export default function App() {
       `&center=lonlat:${lon},${lat}` +
       `&zoom=11` +
       `&marker=lonlat:${lon},${lat};color:%23ef4444;size:medium` +
-      `&apiKey=${key}`
+      `&apiKey=${encodeURIComponent(String(key ?? ""))}`
     );
   }
 
@@ -139,18 +241,49 @@ export default function App() {
     return `${aqi} (${aqiText ?? "AQI"})`;
   }
 
+  async function fetchWeatherByCoords(lat: number, lon: number) {
+    const resp = await fetch(
+      `http://localhost:4000/api/weatherByCoords?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(
+        String(lon)
+      )}`
+    );
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setResult({
+        city: pendingQuery || city,
+        country: null,
+        temp: null,
+        description: null,
+        aqi: null,
+        aqiText: null,
+        news: [],
+        error: data?.error ?? "Error",
+      });
+      return;
+    }
+
+    setResult(data);
+    await loadRecent();
+    await loadFavorites();
+  }
+
   async function onSearch(nextCity?: string) {
     const q = (nextCity ?? city).trim();
     if (!q) return;
+
+    setPendingQuery(q);
+    setCandidates(null);
 
     setLoading(true);
     setResult(null);
 
     try {
-      const resp = await fetch(`http://localhost:4000/api/weather?city=${encodeURIComponent(q)}`);
-      const data = await resp.json();
+      // 1) Find candidate locations first
+      const geoResp = await fetch(`http://localhost:4000/api/geo?q=${encodeURIComponent(q)}`);
+      const geoData = await geoResp.json();
 
-      if (!resp.ok) {
+      if (!geoResp.ok) {
         setResult({
           city: q,
           country: null,
@@ -159,13 +292,46 @@ export default function App() {
           aqi: null,
           aqiText: null,
           news: [],
-          error: data?.error ?? "Error",
+          error: geoData?.error ?? "Geocoding error",
         });
-      } else {
-        setResult(data);
-        await loadRecent();
-        await loadFavorites();
+        return;
       }
+
+      const list: GeoCandidate[] = Array.isArray(geoData) ? geoData : [];
+
+      if (list.length === 0) {
+        setResult({
+          city: q,
+          country: null,
+          temp: null,
+          description: null,
+          aqi: null,
+          aqiText: null,
+          news: [],
+          error: "No matching cities found. Try adding a country (e.g., Madison, US).",
+        });
+        return;
+      }
+
+      if (list.length === 1) {
+        // 2) Exactly one match -> fetch weather immediately
+        await fetchWeatherByCoords(list[0].lat, list[0].lon);
+        return;
+      }
+
+      // 3) Multiple matches -> show picker, do NOT auto pick
+      setCandidates(list);
+      // show a friendly message in result area
+      setResult({
+        city: q,
+        country: null,
+        temp: null,
+        description: null,
+        aqi: null,
+        aqiText: null,
+        news: [],
+        error: "Multiple matches found — pick the correct location below.",
+      });
     } catch {
       setResult({
         city: q,
@@ -248,8 +414,6 @@ export default function App() {
 
   /**
    * Smooth accordion Section
-   * - animates height using measured scrollHeight
-   * - animates opacity + slight translate
    */
   const Section = ({
     title,
@@ -273,16 +437,13 @@ export default function App() {
       setMaxH(open ? h : 0);
     };
 
-    // Measure after render whenever open changes or content changes
     useLayoutEffect(() => {
       measure();
-      // also re-measure on next frame to be safe (fonts/images)
       const id = requestAnimationFrame(measure);
       return () => cancelAnimationFrame(id);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, children]);
 
-    // Re-measure on window resize
     useEffect(() => {
       const onResize = () => measure();
       window.addEventListener("resize", onResize);
@@ -508,7 +669,7 @@ export default function App() {
           <input
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            placeholder="Search a city (e.g., Seoul)"
+            placeholder="Search a city (e.g., Madison)"
             style={{
               flex: 1,
               padding: 12,
@@ -561,6 +722,70 @@ export default function App() {
             {loading ? "Loading..." : "Search"}
           </button>
         </div>
+
+        {/* NEW: ambiguity picker */}
+        {candidates && candidates.length > 1 && (
+          <div style={{ maxWidth: 900, margin: "10px auto 0" }}>
+            <div
+              style={{
+                border: `1px solid ${theme.border}`,
+                background: theme.card,
+                borderRadius: 16,
+                padding: 12,
+                boxShadow: dark ? "none" : "0 10px 25px rgba(15, 23, 42, 0.06)",
+              }}
+            >
+              <div style={{ fontWeight: 900, color: theme.text, marginBottom: 8 }}>
+                Did you mean:
+                <span style={{ marginLeft: 8, color: theme.sub, fontWeight: 800 }}>
+                  ({pendingQuery})
+                </span>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {candidates.map((c, idx) => (
+                  <button
+                    key={`${c.lat}-${c.lon}-${idx}`}
+                    onClick={async () => {
+                      setCandidates(null);
+                      setLoading(true);
+                      try {
+                        await fetchWeatherByCoords(c.lat, c.lon);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    style={{
+                      border: `1px solid ${theme.border}`,
+                      background: theme.chip,
+                      color: theme.text,
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      transition: "transform 120ms ease, border-color 120ms ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
+                    }}
+                    title={`${c.name} (${c.lat.toFixed(3)}, ${c.lon.toFixed(3)})`}
+                  >
+                    {formatCandidateLabel(c)}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 8, fontSize: 12, color: theme.sub }}>
+                Tip: this avoids the “Madison, AL vs Madison, WI” problem.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Favorites + Recent (collapsible) */}
         <div style={{ maxWidth: 900, margin: "10px auto 0", display: "grid", gap: 10 }}>
@@ -648,7 +873,7 @@ export default function App() {
 
           {result?.error && (
             <div>
-              <div style={{ fontWeight: 900, color: theme.text, marginBottom: 6 }}>Error</div>
+              <div style={{ fontWeight: 900, color: theme.text, marginBottom: 6 }}>Notice</div>
               <div>{result.error}</div>
             </div>
           )}
@@ -657,8 +882,7 @@ export default function App() {
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 18, fontWeight: 950, color: theme.text }}>
-                  {result.city}
-                  {result.country ? `, ${result.country}` : ""}
+                  {formatCityLabel(result)}
                 </div>
 
                 <div style={{ flex: 1 }} />
@@ -758,31 +982,49 @@ export default function App() {
             <div>Search a city to see air quality.</div>
           )}
         </Card>
-          {result && !result.error && result.lat != null && result.lon != null && (
-            <Card title="Location">
-              <div style={{ fontSize: 13, color: theme.sub, marginBottom: 8 }}>
-                This map confirms the exact location used for the weather data.
-              </div>
 
-              <img
-                src={staticMapUrl(result.lat, result.lon)}
-                alt={`Map of ${result.city}`}
-                loading="lazy"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = "none";
-                }}
-                style={{
-                  width: "100%",
-                  borderRadius: 14,
-                  border: `1px solid ${theme.border}`,
-                }}
-              />
+        {/* Location card */}
+        {result && !result.error && result.lat != null && result.lon != null && (
+          <Card title="Location">
+            <div style={{ fontSize: 13, color: theme.sub, marginBottom: 8 }}>
+              This confirms the exact location used for the weather data.
+            </div>
 
-              <div style={{ marginTop: 8, fontSize: 12, color: theme.sub }}>
-                Coordinates: {result.lat.toFixed(3)}, {result.lon.toFixed(3)}
+            <img
+              src={staticMapUrl(result.lat, result.lon)}
+              alt={`Map of ${result.city}`}
+              loading="lazy"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+              style={{
+                width: "100%",
+                borderRadius: 14,
+                border: `1px solid ${theme.border}`,
+              }}
+            />
+
+            <div style={{ marginTop: 8, fontSize: 12, color: theme.sub }}>
+              Coordinates: {result.lat.toFixed(3)}, {result.lon.toFixed(3)}
+            </div>
+
+            {(result.region || result.county) && (
+              <div style={{ marginTop: 6, fontSize: 12, color: theme.sub }}>
+                {result.region && (
+                  <div>
+                    Region: <b style={{ color: theme.text }}>{result.region}</b>
+                    {result.regionCode ? ` (${result.regionCode})` : ""}
+                  </div>
+                )}
+                {result.county && (
+                  <div>
+                    County: <b style={{ color: theme.text }}>{result.county}</b>
+                  </div>
+                )}
               </div>
-            </Card>
-          )}
+            )}
+          </Card>
+        )}
 
         {/* News (collapsible) */}
         <div style={{ gridColumn: "1 / -1" }}>
@@ -843,7 +1085,7 @@ export default function App() {
       </div>
 
       <div style={{ maxWidth: 900, margin: "18px auto 0", color: theme.sub, fontSize: 12 }}>
-        v0.7 — Smooth accordion motion + accent polish
+        v0.9 — Ambiguous city picker (geo first → coords weather)
       </div>
     </div>
   );
