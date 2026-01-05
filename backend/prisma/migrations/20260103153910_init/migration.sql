@@ -1,7 +1,0 @@
--- CreateTable
-CREATE TABLE "RecentSearch" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "city" TEXT NOT NULL,
-    "country" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
