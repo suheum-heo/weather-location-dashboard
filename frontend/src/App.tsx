@@ -16,7 +16,6 @@ type WeatherResult = {
   lat?: number | null;
   lon?: number | null;
 
-  // reverse geocode fields from backend (if present)
   region?: string | null;
   regionCode?: string | null;
   county?: string | null;
@@ -64,14 +63,8 @@ function formatTime(iso: string | null) {
   return d.toLocaleString();
 }
 
-/** Super clean formatting rule:
- * - If US and we have region/state, show "City, ST" (Wisconsin -> WI)
- * - Else show "City, CC"
- * - If we don’t have country, just show city
- */
 function formatCityLabel(r: WeatherResult) {
   const city = r.city;
-
   if (!r.country) return city;
 
   if (r.country === "US") {
@@ -139,23 +132,18 @@ function formatCityLabel(r: WeatherResult) {
 }
 
 function formatCandidateLabel(c: GeoCandidate) {
-  // For the picker chips
-  if (c.country === "US" && c.state) {
-    // show state name to make choice obvious
-    return `${c.name}, ${c.state}`;
-  }
+  if (c.country === "US" && c.state) return `${c.name}, ${c.state}`;
   return `${c.name}, ${c.country}${c.state ? ` (${c.state})` : ""}`;
 }
 
 export default function App() {
-  const [city, setCity] = useState("Seoul");
+  const [draftCity, setDraftCity] = useState("Seoul");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WeatherResult | null>(null);
   const [recent, setRecent] = useState<RecentItem[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [dark, setDark] = useState<boolean>(() => localStorage.getItem("theme") === "dark");
 
-  // ambiguity resolver UI
   const [candidates, setCandidates] = useState<GeoCandidate[] | null>(null);
   const [pendingQuery, setPendingQuery] = useState<string>("");
 
@@ -175,20 +163,26 @@ export default function App() {
     return { bg, card, text, sub, border, chip, accent, accentSoft };
   }, [dark]);
 
-  // FULLY STRETCHED LAYOUT:
-  // - No maxWidth
-  // - We add horizontal padding so it doesn't stick to the edges
+  // 🔥 IMPORTANT: This fixes the “first render looks like a narrow column” issue
+  // (Vite templates often set #root max-width & padding in index.css)
+  const GlobalReset = () => (
+    <style>{`
+      html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; }
+      #root { max-width: none !important; padding: 0 !important; }
+      body { background: ${theme.bg}; }
+      * { box-sizing: border-box; }
+    `}</style>
+  );
+
+  // Layout
   const containerStyle: React.CSSProperties = {
     width: "100%",
-    maxWidth: "none",
-    margin: "0 auto",
     padding: "0 22px",
   };
 
-  // Keep cards from getting comically wide on ultra-wide monitors:
-  // we cap the *card grid* column width using minmax() and a reasonable min size.
-  // (The page still stretches; it just uses more columns / spacing naturally.)
-  const gridMin = 360;
+  const gridMin = 360; // card minimum width
+  const cardMinHeight = 180; // helps rows look less uneven
+  const mapHeight = 180; // forces Location card to not blow up row height
 
   function aqiColor(aqi: number | null) {
     switch (aqi) {
@@ -207,6 +201,18 @@ export default function App() {
     }
   }
 
+  function aqiDisplay(aqi: number | null, aqiText: string | null) {
+    if (!aqi) return "—";
+    return `${aqi} (${aqiText ?? "AQI"})`;
+  }
+
+  function tempColor(temp: number | null) {
+    if (temp == null) return theme.text;
+    if (temp <= 0) return "#38bdf8";
+    if (temp >= 30) return "#fb7185";
+    return theme.text;
+  }
+
   function staticMapUrl(lat: number, lon: number) {
     const key = import.meta.env.VITE_GEOAPIFY_KEY;
     return (
@@ -219,13 +225,6 @@ export default function App() {
       `&marker=lonlat:${lon},${lat};color:%23ef4444;size:medium` +
       `&apiKey=${encodeURIComponent(String(key ?? ""))}`
     );
-  }
-
-  function tempColor(temp: number | null) {
-    if (temp == null) return theme.text;
-    if (temp <= 0) return "#38bdf8";
-    if (temp >= 30) return "#fb7185";
-    return theme.text;
   }
 
   async function loadRecent() {
@@ -253,11 +252,6 @@ export default function App() {
     loadFavorites();
   }, []);
 
-  function aqiDisplay(aqi: number | null, aqiText: string | null) {
-    if (!aqi) return "—";
-    return `${aqi} (${aqiText ?? "AQI"})`;
-  }
-
   async function fetchWeatherByCoords(lat: number, lon: number) {
     const resp = await fetch(
       `${API_BASE}/api/weatherByCoords?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(
@@ -268,7 +262,7 @@ export default function App() {
 
     if (!resp.ok) {
       setResult({
-        city: pendingQuery || city,
+        city: pendingQuery || draftCity,
         country: null,
         temp: null,
         description: null,
@@ -286,7 +280,7 @@ export default function App() {
   }
 
   async function onSearch(nextCity?: string) {
-    const q = (nextCity ?? city).trim();
+    const q = (nextCity ?? draftCity).trim();
     if (!q) return;
 
     setPendingQuery(q);
@@ -296,7 +290,6 @@ export default function App() {
     setResult(null);
 
     try {
-      // 1) Find candidate locations first
       const geoResp = await fetch(`${API_BASE}/api/geo?q=${encodeURIComponent(q)}`);
       const geoData = await geoResp.json();
 
@@ -331,12 +324,10 @@ export default function App() {
       }
 
       if (list.length === 1) {
-        // 2) Exactly one match -> fetch weather immediately
         await fetchWeatherByCoords(list[0].lat, list[0].lon);
         return;
       }
 
-      // 3) Multiple matches -> show picker, do NOT auto pick
       setCandidates(list);
       setResult({
         city: q,
@@ -410,6 +401,10 @@ export default function App() {
         padding: 16,
         boxShadow: dark ? "none" : "0 10px 25px rgba(15, 23, 42, 0.06)",
         minWidth: 0,
+        minHeight: cardMinHeight,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -425,13 +420,10 @@ export default function App() {
         <div style={{ fontWeight: 900, color: theme.text }}>{title}</div>
       </div>
 
-      <div style={{ color: theme.sub }}>{children}</div>
+      <div style={{ color: theme.sub, flex: 1 }}>{children}</div>
     </div>
   );
 
-  /**
-   * Smooth accordion Section
-   */
   const Section = ({
     title,
     defaultOpen = true,
@@ -458,14 +450,12 @@ export default function App() {
       measure();
       const id = requestAnimationFrame(measure);
       return () => cancelAnimationFrame(id);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, children]);
 
     useEffect(() => {
       const onResize = () => measure();
       window.addEventListener("resize", onResize);
       return () => window.removeEventListener("resize", onResize);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
     return (
@@ -474,7 +464,7 @@ export default function App() {
           onClick={() => setOpen((v) => !v)}
           style={{
             width: "100%",
-            display:'something',
+            display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             border: `1px solid ${theme.border}`,
@@ -629,19 +619,20 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: theme.bg }}>
-      {/* Top bar */}
+      <GlobalReset />
+
+      {/* Sticky header */}
       <div
         style={{
           position: "sticky",
           top: 0,
-          zIndex: 10,
+          zIndex: 20,
           background: theme.bg,
           padding: "18px 0 12px",
           borderBottom: `1px solid ${theme.border}`,
-          backdropFilter: "saturate(1.2) blur(6px)",
+          backdropFilter: "saturate(1.2) blur(8px)",
         }}
       >
-        {/* Row 1: title + toggle */}
         <div style={{ ...containerStyle, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
@@ -668,26 +659,21 @@ export default function App() {
               borderRadius: 12,
               cursor: "pointer",
               fontWeight: 800,
-              transition: "transform 120ms ease, border-color 120ms ease",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
             }}
           >
             {dark ? "Light Mode" : "Dark Mode"}
           </button>
         </div>
 
-        {/* Row 2: search */}
         <div style={{ ...containerStyle, marginTop: 12, display: "flex", gap: 10 }}>
           <input
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
+            value={draftCity}
+            onChange={(e) => setDraftCity(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                onSearch(draftCity);
+              }
+            }}
             placeholder="Search a city (e.g., Madison)"
             style={{
               flex: 1,
@@ -698,24 +684,12 @@ export default function App() {
               background: theme.card,
               color: theme.text,
               outline: "none",
-              transition: "border-color 120ms ease, box-shadow 120ms ease",
               boxShadow: dark ? "none" : "0 8px 18px rgba(15,23,42,0.04)",
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = theme.accentSoft;
-              e.currentTarget.style.boxShadow = dark ? "none" : "0 12px 24px rgba(15,23,42,0.06)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = theme.border;
-              e.currentTarget.style.boxShadow = dark ? "none" : "0 8px 18px rgba(15,23,42,0.04)";
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
             }}
           />
 
           <button
-            onClick={() => onSearch()}
+            onClick={() => onSearch(draftCity)}
             disabled={loading}
             style={{
               padding: "12px 14px",
@@ -727,22 +701,14 @@ export default function App() {
               cursor: loading ? "not-allowed" : "pointer",
               fontWeight: 900,
               opacity: loading ? 0.75 : 1,
-              transition: "transform 120ms ease, opacity 120ms ease",
               boxShadow: dark ? "none" : "0 12px 24px rgba(79,110,247,0.18)",
-            }}
-            onMouseEnter={(e) => {
-              if (loading) return;
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+              whiteSpace: "nowrap",
             }}
           >
             {loading ? "Loading..." : "Search"}
           </button>
         </div>
 
-        {/* Row 3: ambiguity picker */}
         {candidates && candidates.length > 1 && (
           <div style={{ ...containerStyle, marginTop: 10 }}>
             <div
@@ -780,15 +746,6 @@ export default function App() {
                       borderRadius: 999,
                       cursor: "pointer",
                       fontWeight: 900,
-                      transition: "transform 120ms ease, border-color 120ms ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
                     }}
                     title={`${c.name} (${c.lat.toFixed(3)}, ${c.lon.toFixed(3)})`}
                   >
@@ -804,7 +761,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Row 4: favorites + recent */}
+        {/* Favorites + Recent */}
         <div style={{ ...containerStyle, marginTop: 10, display: "grid", gap: 10 }}>
           {favorites.length > 0 && (
             <Section title="Favorites" defaultOpen>
@@ -814,7 +771,7 @@ export default function App() {
                     key={f.cityKey}
                     label={`${f.city}${f.country ? `, ${f.country}` : ""}`}
                     onClick={() => {
-                      setCity(f.city);
+                      setDraftCity(f.city);
                       onSearch(f.city);
                     }}
                     starred
@@ -841,15 +798,6 @@ export default function App() {
                     cursor: "pointer",
                     fontWeight: 900,
                     fontSize: 12,
-                    transition: "border-color 120ms ease, transform 120ms ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
-                    (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
-                    (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
                   }}
                 >
                   Clear
@@ -864,7 +812,7 @@ export default function App() {
                       key={r.id}
                       label={`${r.city}${r.country ? `, ${r.country}` : ""}`}
                       onClick={() => {
-                        setCity(r.city);
+                        setDraftCity(r.city);
                         onSearch(r.city);
                       }}
                       starred={r.isFavorite}
@@ -881,20 +829,18 @@ export default function App() {
         </div>
       </div>
 
-      {/* BODY */}
+      {/* Body */}
       <div style={{ ...containerStyle, paddingTop: 16, paddingBottom: 22 }}>
-        {/* Cards grid: auto-fit so it expands on wide screens */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: `repeat(auto-fit, minmax(${gridMin}px, 1fr))`,
             gap: 14,
-            alignItems: "start",
+            alignItems: "stretch",
           }}
         >
           <Card title="Weather">
             {!result && !loading && <div>Search a city to see results.</div>}
-
             {loading && <div style={{ color: theme.sub }}>Loading weather, AQI, and news…</div>}
 
             {result?.error && (
@@ -905,12 +851,10 @@ export default function App() {
             )}
 
             {result && !result.error && (
-              <div>
+              <div style={{ display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ fontSize: 18, fontWeight: 950, color: theme.text }}>{formatCityLabel(result)}</div>
-
                   <div style={{ flex: 1 }} />
-
                   <button
                     onClick={() => toggleFavorite(result.city, result.country ?? null)}
                     title={result.isFavorite ? "Unfavorite" : "Favorite"}
@@ -922,20 +866,9 @@ export default function App() {
                       borderRadius: 999,
                       cursor: "pointer",
                       fontWeight: 950,
-                      lineHeight: 1,
                       display: "inline-flex",
                       alignItems: "center",
-                      justifyContent: "center",
                       gap: 6,
-                      transition: "transform 120ms ease, border-color 120ms ease, background 120ms ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
                     }}
                   >
                     <span style={{ fontSize: 18, lineHeight: 1, color: result.isFavorite ? "#facc15" : theme.text }}>
@@ -945,10 +878,10 @@ export default function App() {
                   </button>
                 </div>
 
-                <div style={{ marginTop: 10 }}>
+                <div>
                   Temperature: <b style={{ color: tempColor(result.temp) }}>{result.temp ?? "—"}°C</b>
                 </div>
-                <div style={{ marginTop: 6 }}>
+                <div>
                   Description: <b style={{ color: theme.text }}>{result.description ?? "—"}</b>
                 </div>
               </div>
@@ -957,14 +890,13 @@ export default function App() {
 
           <Card title="Air Quality">
             {result && !result.error ? (
-              <div>
+              <div style={{ display: "grid", gap: 10 }}>
                 <div>
                   AQI: <b style={{ color: aqiColor(result.aqi) }}>{aqiDisplay(result.aqi, result.aqiText)}</b>
                 </div>
 
                 <div
                   style={{
-                    marginTop: 10,
                     border: `1px solid ${theme.border}`,
                     borderRadius: 14,
                     padding: 10,
@@ -1007,7 +939,6 @@ export default function App() {
             )}
           </Card>
 
-          {/* Location card */}
           {result && !result.error && result.lat != null && result.lon != null && (
             <Card title="Location">
               <div style={{ fontSize: 13, color: theme.sub, marginBottom: 8 }}>
@@ -1023,6 +954,8 @@ export default function App() {
                 }}
                 style={{
                   width: "100%",
+                  height: mapHeight,
+                  objectFit: "cover",
                   borderRadius: 14,
                   border: `1px solid ${theme.border}`,
                 }}
@@ -1051,7 +984,7 @@ export default function App() {
           )}
         </div>
 
-        {/* News FULL WIDTH */}
+        {/* News full width */}
         <div style={{ marginTop: 14 }}>
           <div
             style={{
@@ -1078,15 +1011,6 @@ export default function App() {
                           borderRadius: 16,
                           padding: 12,
                           background: dark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
-                          transition: "transform 120ms ease, border-color 120ms ease",
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-1px)";
-                          (e.currentTarget as HTMLAnchorElement).style.borderColor = theme.accentSoft;
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
-                          (e.currentTarget as HTMLAnchorElement).style.borderColor = theme.border;
                         }}
                       >
                         <div style={{ fontWeight: 950, color: theme.text, marginBottom: 4 }}>{n.title}</div>
@@ -1109,7 +1033,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14, color: theme.sub, fontSize: 12 }}>
-          v1.0 — Fully stretched layout (no maxWidth) + responsive auto-fit cards
+          v1.1 — Full-width from first render + aligned cards
         </div>
       </div>
     </div>
