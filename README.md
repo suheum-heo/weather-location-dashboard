@@ -43,7 +43,6 @@ The app also handles city disambiguation (e.g., *Madison, WI vs other Madisons*)
 ### Frontend
 - React + TypeScript
 - Vite
-- Tailwind CSS (or your styling solution)
 
 ### Backend
 - Node.js
@@ -68,12 +67,6 @@ Create `backend/.env`:
 ```env
 OPENWEATHER_API_KEY=your_openweather_key
 DATABASE_URL=your_postgresql_database_url
-```
-
-Initialize the database:
-```bash
-npx prisma migrate dev
-npx prisma generate
 ```
 
 Run the backend:
@@ -106,62 +99,26 @@ Frontend runs at: **http://localhost:5173**
 
 ---
 
-## Deployment
+## Deployment Notes
 
-### Frontend
-- Deployed on **Vercel**
-- Auto-deploys from main branch
-- Environment variables configured in Vercel dashboard
-
-### Backend
-- Deployed on **Render**
-- Connected to PostgreSQL database (also on Render)
-- Environment variables configured in Render dashboard
-
-### Database
-- PostgreSQL hosted on **Render**
-- Automatically managed by Prisma migrations
-
----
-
-## API Keys Required
-
-| Service | Purpose | Get API Key |
-|---------|---------|-------------|
-| OpenWeather | Weather data & geocoding | https://openweathermap.org/api |
-| Geoapify | Static map images | https://www.geoapify.com/ |
-
+- Frontend deployed on **Vercel**
+- Backend deployed on **Render**
+- Database is PostgreSQL (hosted on **Render**)
 ---
 
 ## CORS Configuration
 
-Backend allows requests from:
-- `https://weather-location-dashboard.vercel.app` (production)
-- `http://localhost:5173` (local development)
-- `http://localhost:3000` (alternative local port)
+The ackend explicitly allows:
+- `https://weather-location-dashboard.vercel.app`
 
 ---
 
 ## Known Limitations
 
-- ⏱️ Render free-tier may cause cold starts (~10-30s delay)
+- ⏱️ Render free-tier may expire cause cold starts (~10-30s delay)
 - 🗄️ Free PostgreSQL database has storage limits
 - 🗺️ Static map requires Geoapify API key
 - 📰 News results depend on Google News RSS availability
 
 ---
 
-## Possible Improvements
-
-- 🔽 **Autocomplete dropdown** for ambiguous city names
-- 💀 **Skeleton loaders** for better perceived performance
-- 💾 **API response caching** to reduce external API calls
-- 👤 **User accounts / authentication** for personalized favorites
-- 🗺️ **Interactive maps** (Leaflet / Mapbox integration)
-- 📊 **Weather charts** showing historical trends
-- 🌍 **Multi-language support** for international users
-- 📱 **Progressive Web App (PWA)** for offline access
-- 🔔 **Weather alerts** and notifications
-- 🎨 **Customizable themes** beyond dark mode
-
----
