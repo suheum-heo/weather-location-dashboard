@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 
 type NewsItem = {
   title: string;
@@ -213,7 +214,7 @@ export default function App() {
 
   async function loadRecent() {
     try {
-      const r = await fetch("http://localhost:4000/api/recent");
+      const r = await fetch(`${API_BASE}/api/recent`);
       const data = await r.json();
       if (r.ok) setRecent(data);
     } catch {
@@ -223,7 +224,7 @@ export default function App() {
 
   async function loadFavorites() {
     try {
-      const r = await fetch("http://localhost:4000/api/favorites");
+      const r = await fetch(`${API_BASE}/api/favorites`);
       const data = await r.json();
       if (r.ok) setFavorites(data);
     } catch {
@@ -243,7 +244,7 @@ export default function App() {
 
   async function fetchWeatherByCoords(lat: number, lon: number) {
     const resp = await fetch(
-      `http://localhost:4000/api/weatherByCoords?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(
+      `${API_BASE}/api/weatherByCoords?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(
         String(lon)
       )}`
     );
@@ -280,7 +281,7 @@ export default function App() {
 
     try {
       // 1) Find candidate locations first
-      const geoResp = await fetch(`http://localhost:4000/api/geo?q=${encodeURIComponent(q)}`);
+      const geoResp = await fetch(`${API_BASE}/api/geo?q=${encodeURIComponent(q)}`);
       const geoData = await geoResp.json();
 
       if (!geoResp.ok) {
@@ -350,7 +351,7 @@ export default function App() {
 
   async function toggleFavorite(cityName: string, country: string | null) {
     try {
-      const resp = await fetch("http://localhost:4000/api/favorites/toggle", {
+      const resp = await fetch(`${API_BASE}/api/favorites/toggle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ city: cityName, country }),
@@ -376,7 +377,7 @@ export default function App() {
 
   async function clearRecent() {
     try {
-      const r = await fetch("http://localhost:4000/api/recent", { method: "DELETE" });
+      const r = await fetch(`${API_BASE}/api/recent`, { method: "DELETE" });
       if (r.ok) setRecent([]);
     } catch {
       // ignore
