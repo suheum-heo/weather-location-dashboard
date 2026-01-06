@@ -12,7 +12,7 @@ app.use(
     origin: [
       "http://localhost:5173",
       "http://localhost:3000",
-      "https://YOUR_VERCEL_DOMAIN.vercel.app",
+      "https://weather-location-dashboard.vercel.app",
     ],
   })
 );
