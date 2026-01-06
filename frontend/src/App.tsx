@@ -617,6 +617,12 @@ export default function App() {
     );
   };
 
+  // ✅ Stable map URL so the image does NOT blink on re-renders
+  const mapUrl = useMemo(() => {
+    if (!result || result.error || result.lat == null || result.lon == null) return null;
+    return staticMapUrl(result.lat, result.lon);
+  }, [result?.lat, result?.lon, result?.error]);
+
   return (
     <div style={{ minHeight: "100vh", background: theme.bg }}>
       <GlobalReset />
@@ -945,21 +951,20 @@ export default function App() {
                 This confirms the exact location used for the weather data.
               </div>
 
-              <img
-                src={staticMapUrl(result.lat, result.lon)}
-                alt={`Map of ${result.city}`}
-                loading="lazy"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = "none";
-                }}
-                style={{
-                  width: "100%",
-                  height: mapHeight,
-                  objectFit: "cover",
-                  borderRadius: 14,
-                  border: `1px solid ${theme.border}`,
-                }}
-              />
+              {mapUrl && (
+                <img
+                  src={mapUrl}
+                  alt={`Map of ${result.city}`}
+                  loading="lazy"
+                  style={{
+                    width: "100%",
+                    height: mapHeight,
+                    objectFit: "cover",
+                    borderRadius: 14,
+                    border: `1px solid ${theme.border}`,
+                  }}
+                />
+              )}
 
               <div style={{ marginTop: 8, fontSize: 12, color: theme.sub }}>
                 Coordinates: {result.lat.toFixed(3)}, {result.lon.toFixed(3)}
