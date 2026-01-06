@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
-console.log("API_BASE =", import.meta.env.VITE_API_BASE);
 
 type NewsItem = {
   title: string;
