@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 
 type NewsItem = {
@@ -154,7 +155,7 @@ export default function App() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [dark, setDark] = useState<boolean>(() => localStorage.getItem("theme") === "dark");
 
-  // NEW: ambiguity resolver UI
+  // ambiguity resolver UI
   const [candidates, setCandidates] = useState<GeoCandidate[] | null>(null);
   const [pendingQuery, setPendingQuery] = useState<string>("");
 
@@ -173,6 +174,21 @@ export default function App() {
     const accentSoft = dark ? "rgba(79,110,247,0.18)" : "rgba(79,110,247,0.12)";
     return { bg, card, text, sub, border, chip, accent, accentSoft };
   }, [dark]);
+
+  // FULLY STRETCHED LAYOUT:
+  // - No maxWidth
+  // - We add horizontal padding so it doesn't stick to the edges
+  const containerStyle: React.CSSProperties = {
+    width: "100%",
+    maxWidth: "none",
+    margin: "0 auto",
+    padding: "0 22px",
+  };
+
+  // Keep cards from getting comically wide on ultra-wide monitors:
+  // we cap the *card grid* column width using minmax() and a reasonable min size.
+  // (The page still stretches; it just uses more columns / spacing naturally.)
+  const gridMin = 360;
 
   function aqiColor(aqi: number | null) {
     switch (aqi) {
@@ -196,8 +212,8 @@ export default function App() {
     return (
       `https://maps.geoapify.com/v1/staticmap` +
       `?style=osm-carto` +
-      `&width=600` +
-      `&height=300` +
+      `&width=900` +
+      `&height=360` +
       `&center=lonlat:${lon},${lat}` +
       `&zoom=11` +
       `&marker=lonlat:${lon},${lat};color:%23ef4444;size:medium` +
@@ -322,7 +338,6 @@ export default function App() {
 
       // 3) Multiple matches -> show picker, do NOT auto pick
       setCandidates(list);
-      // show a friendly message in result area
       setResult({
         city: q,
         country: null,
@@ -394,6 +409,7 @@ export default function App() {
         borderRadius: 18,
         padding: 16,
         boxShadow: dark ? "none" : "0 10px 25px rgba(15, 23, 42, 0.06)",
+        minWidth: 0,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -458,7 +474,7 @@ export default function App() {
           onClick={() => setOpen((v) => !v)}
           style={{
             width: "100%",
-            display: "flex",
+            display:'something',
             alignItems: "center",
             justifyContent: "space-between",
             border: `1px solid ${theme.border}`,
@@ -612,7 +628,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: theme.bg, padding: 20 }}>
+    <div style={{ minHeight: "100vh", background: theme.bg }}>
       {/* Top bar */}
       <div
         style={{
@@ -620,11 +636,13 @@ export default function App() {
           top: 0,
           zIndex: 10,
           background: theme.bg,
-          paddingBottom: 12,
-          marginBottom: 12,
+          padding: "18px 0 12px",
+          borderBottom: `1px solid ${theme.border}`,
+          backdropFilter: "saturate(1.2) blur(6px)",
         }}
       >
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", gap: 12 }}>
+        {/* Row 1: title + toggle */}
+        <div style={{ ...containerStyle, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
               style={{
@@ -665,8 +683,8 @@ export default function App() {
           </button>
         </div>
 
-        {/* Search row */}
-        <div style={{ maxWidth: 900, margin: "12px auto 0", display: "flex", gap: 10 }}>
+        {/* Row 2: search */}
+        <div style={{ ...containerStyle, marginTop: 12, display: "flex", gap: 10 }}>
           <input
             value={city}
             onChange={(e) => setCity(e.target.value)}
@@ -724,9 +742,9 @@ export default function App() {
           </button>
         </div>
 
-        {/* NEW: ambiguity picker */}
+        {/* Row 3: ambiguity picker */}
         {candidates && candidates.length > 1 && (
-          <div style={{ maxWidth: 900, margin: "10px auto 0" }}>
+          <div style={{ ...containerStyle, marginTop: 10 }}>
             <div
               style={{
                 border: `1px solid ${theme.border}`,
@@ -738,9 +756,7 @@ export default function App() {
             >
               <div style={{ fontWeight: 900, color: theme.text, marginBottom: 8 }}>
                 Did you mean:
-                <span style={{ marginLeft: 8, color: theme.sub, fontWeight: 800 }}>
-                  ({pendingQuery})
-                </span>
+                <span style={{ marginLeft: 8, color: theme.sub, fontWeight: 800 }}>({pendingQuery})</span>
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -788,8 +804,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Favorites + Recent (collapsible) */}
-        <div style={{ maxWidth: 900, margin: "10px auto 0", display: "grid", gap: 10 }}>
+        {/* Row 4: favorites + recent */}
+        <div style={{ ...containerStyle, marginTop: 10, display: "grid", gap: 10 }}>
           {favorites.length > 0 && (
             <Section title="Favorites" defaultOpen>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -865,170 +881,178 @@ export default function App() {
         </div>
       </div>
 
-      {/* Main content */}
-      <div style={{ maxWidth: 900, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Card title="Weather">
-          {!result && !loading && <div>Search a city to see results.</div>}
+      {/* BODY */}
+      <div style={{ ...containerStyle, paddingTop: 16, paddingBottom: 22 }}>
+        {/* Cards grid: auto-fit so it expands on wide screens */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(auto-fit, minmax(${gridMin}px, 1fr))`,
+            gap: 14,
+            alignItems: "start",
+          }}
+        >
+          <Card title="Weather">
+            {!result && !loading && <div>Search a city to see results.</div>}
 
-          {loading && <div style={{ color: theme.sub }}>Loading weather, AQI, and news…</div>}
+            {loading && <div style={{ color: theme.sub }}>Loading weather, AQI, and news…</div>}
 
-          {result?.error && (
-            <div>
-              <div style={{ fontWeight: 900, color: theme.text, marginBottom: 6 }}>Notice</div>
-              <div>{result.error}</div>
-            </div>
-          )}
-
-          {result && !result.error && (
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ fontSize: 18, fontWeight: 950, color: theme.text }}>
-                  {formatCityLabel(result)}
-                </div>
-
-                <div style={{ flex: 1 }} />
-
-                <button
-                  onClick={() => toggleFavorite(result.city, result.country ?? null)}
-                  title={result.isFavorite ? "Unfavorite" : "Favorite"}
-                  style={{
-                    border: `1px solid ${theme.border}`,
-                    background: result.isFavorite ? theme.accentSoft : theme.card,
-                    color: theme.text,
-                    padding: "6px 10px",
-                    borderRadius: 999,
-                    cursor: "pointer",
-                    fontWeight: 950,
-                    lineHeight: 1,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                    transition: "transform 120ms ease, border-color 120ms ease, background 120ms ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
-                  }}
-                >
-                  <span style={{ fontSize: 18, lineHeight: 1, color: result.isFavorite ? "#facc15" : theme.text }}>
-                    {result.isFavorite ? "★" : "☆"}
-                  </span>
-                  <span>{result.isFavorite ? "Starred" : "Star"}</span>
-                </button>
-              </div>
-
-              <div style={{ marginTop: 10 }}>
-                Temperature: <b style={{ color: tempColor(result.temp) }}>{result.temp ?? "—"}°C</b>
-              </div>
-              <div style={{ marginTop: 6 }}>
-                Description: <b style={{ color: theme.text }}>{result.description ?? "—"}</b>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        <Card title="Air Quality">
-          {result && !result.error ? (
-            <div>
+            {result?.error && (
               <div>
-                AQI: <b style={{ color: aqiColor(result.aqi) }}>{aqiDisplay(result.aqi, result.aqiText)}</b>
+                <div style={{ fontWeight: 900, color: theme.text, marginBottom: 6 }}>Notice</div>
+                <div>{result.error}</div>
               </div>
+            )}
 
-              <div
-                style={{
-                  marginTop: 10,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 14,
-                  padding: 10,
-                  background: dark ? "rgba(255,255,255,0.03)" : "rgba(15,23,42,0.03)",
-                }}
-              >
-                <div style={{ fontSize: 12, color: theme.sub, fontWeight: 800, marginBottom: 6 }}>AQI scale</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {[
-                    { n: 1, t: "Good" },
-                    { n: 2, t: "Fair" },
-                    { n: 3, t: "Moderate" },
-                    { n: 4, t: "Poor" },
-                    { n: 5, t: "Very Poor" },
-                  ].map((x) => (
-                    <span
-                      key={x.n}
-                      style={{
-                        border: `1px solid ${theme.border}`,
-                        background: theme.card,
-                        borderRadius: 999,
-                        padding: "6px 10px",
-                        fontSize: 12,
-                        fontWeight: 900,
-                        color: theme.text,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span style={{ width: 10, height: 10, borderRadius: 999, background: aqiColor(x.n) }} />
-                      {x.n} — {x.t}
+            {result && !result.error && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontSize: 18, fontWeight: 950, color: theme.text }}>{formatCityLabel(result)}</div>
+
+                  <div style={{ flex: 1 }} />
+
+                  <button
+                    onClick={() => toggleFavorite(result.city, result.country ?? null)}
+                    title={result.isFavorite ? "Unfavorite" : "Favorite"}
+                    style={{
+                      border: `1px solid ${theme.border}`,
+                      background: result.isFavorite ? theme.accentSoft : theme.card,
+                      color: theme.text,
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      cursor: "pointer",
+                      fontWeight: 950,
+                      lineHeight: 1,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      transition: "transform 120ms ease, border-color 120ms ease, background 120ms ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.accentSoft;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
+                    }}
+                  >
+                    <span style={{ fontSize: 18, lineHeight: 1, color: result.isFavorite ? "#facc15" : theme.text }}>
+                      {result.isFavorite ? "★" : "☆"}
                     </span>
-                  ))}
+                    <span>{result.isFavorite ? "Starred" : "Star"}</span>
+                  </button>
                 </div>
-              </div>
-            </div>
-          ) : (
-            <div>Search a city to see air quality.</div>
-          )}
-        </Card>
 
-        {/* Location card */}
-        {result && !result.error && result.lat != null && result.lon != null && (
-          <Card title="Location">
-            <div style={{ fontSize: 13, color: theme.sub, marginBottom: 8 }}>
-              This confirms the exact location used for the weather data.
-            </div>
-
-            <img
-              src={staticMapUrl(result.lat, result.lon)}
-              alt={`Map of ${result.city}`}
-              loading="lazy"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
-              style={{
-                width: "100%",
-                borderRadius: 14,
-                border: `1px solid ${theme.border}`,
-              }}
-            />
-
-            <div style={{ marginTop: 8, fontSize: 12, color: theme.sub }}>
-              Coordinates: {result.lat.toFixed(3)}, {result.lon.toFixed(3)}
-            </div>
-
-            {(result.region || result.county) && (
-              <div style={{ marginTop: 6, fontSize: 12, color: theme.sub }}>
-                {result.region && (
-                  <div>
-                    Region: <b style={{ color: theme.text }}>{result.region}</b>
-                    {result.regionCode ? ` (${result.regionCode})` : ""}
-                  </div>
-                )}
-                {result.county && (
-                  <div>
-                    County: <b style={{ color: theme.text }}>{result.county}</b>
-                  </div>
-                )}
+                <div style={{ marginTop: 10 }}>
+                  Temperature: <b style={{ color: tempColor(result.temp) }}>{result.temp ?? "—"}°C</b>
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  Description: <b style={{ color: theme.text }}>{result.description ?? "—"}</b>
+                </div>
               </div>
             )}
           </Card>
-        )}
 
-        {/* News (collapsible) */}
-        <div style={{ gridColumn: "1 / -1" }}>
+          <Card title="Air Quality">
+            {result && !result.error ? (
+              <div>
+                <div>
+                  AQI: <b style={{ color: aqiColor(result.aqi) }}>{aqiDisplay(result.aqi, result.aqiText)}</b>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 14,
+                    padding: 10,
+                    background: dark ? "rgba(255,255,255,0.03)" : "rgba(15,23,42,0.03)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: theme.sub, fontWeight: 800, marginBottom: 6 }}>AQI scale</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {[
+                      { n: 1, t: "Good" },
+                      { n: 2, t: "Fair" },
+                      { n: 3, t: "Moderate" },
+                      { n: 4, t: "Poor" },
+                      { n: 5, t: "Very Poor" },
+                    ].map((x) => (
+                      <span
+                        key={x.n}
+                        style={{
+                          border: `1px solid ${theme.border}`,
+                          background: theme.card,
+                          borderRadius: 999,
+                          padding: "6px 10px",
+                          fontSize: 12,
+                          fontWeight: 900,
+                          color: theme.text,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ width: 10, height: 10, borderRadius: 999, background: aqiColor(x.n) }} />
+                        {x.n} — {x.t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>Search a city to see air quality.</div>
+            )}
+          </Card>
+
+          {/* Location card */}
+          {result && !result.error && result.lat != null && result.lon != null && (
+            <Card title="Location">
+              <div style={{ fontSize: 13, color: theme.sub, marginBottom: 8 }}>
+                This confirms the exact location used for the weather data.
+              </div>
+
+              <img
+                src={staticMapUrl(result.lat, result.lon)}
+                alt={`Map of ${result.city}`}
+                loading="lazy"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
+                style={{
+                  width: "100%",
+                  borderRadius: 14,
+                  border: `1px solid ${theme.border}`,
+                }}
+              />
+
+              <div style={{ marginTop: 8, fontSize: 12, color: theme.sub }}>
+                Coordinates: {result.lat.toFixed(3)}, {result.lon.toFixed(3)}
+              </div>
+
+              {(result.region || result.county) && (
+                <div style={{ marginTop: 6, fontSize: 12, color: theme.sub }}>
+                  {result.region && (
+                    <div>
+                      Region: <b style={{ color: theme.text }}>{result.region}</b>
+                      {result.regionCode ? ` (${result.regionCode})` : ""}
+                    </div>
+                  )}
+                  {result.county && (
+                    <div>
+                      County: <b style={{ color: theme.text }}>{result.county}</b>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+
+        {/* News FULL WIDTH */}
+        <div style={{ marginTop: 14 }}>
           <div
             style={{
               background: theme.card,
@@ -1067,7 +1091,7 @@ export default function App() {
                       >
                         <div style={{ fontWeight: 950, color: theme.text, marginBottom: 4 }}>{n.title}</div>
                         <div style={{ color: theme.sub, fontSize: 13 }}>
-                          {(n.source ? n.source : "Unknown source")}
+                          {n.source ? n.source : "Unknown source"}
                           {n.publishedAt ? ` • ${formatTime(n.publishedAt)}` : ""}
                         </div>
                         {n.description && <div style={{ color: theme.sub, marginTop: 6 }}>{n.description}</div>}
@@ -1083,10 +1107,10 @@ export default function App() {
             </Section>
           </div>
         </div>
-      </div>
 
-      <div style={{ maxWidth: 900, margin: "18px auto 0", color: theme.sub, fontSize: 12 }}>
-        v0.9 — Ambiguous city picker (geo first → coords weather)
+        <div style={{ marginTop: 14, color: theme.sub, fontSize: 12 }}>
+          v1.0 — Fully stretched layout (no maxWidth) + responsive auto-fit cards
+        </div>
       </div>
     </div>
   );
